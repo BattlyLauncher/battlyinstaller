@@ -9,7 +9,6 @@
   "stepSummary": "Résumé",
   "stepProgress": "Installation",
   "stepDone": "Terminer",
-
   "welcomeTitle": "Bienvenue dans le programme d'installation",
   "welcomeDesc": "Cet assistant vous guidera pour installer, réparer ou désinstaller l'application.",
   "uninstall_welcome_title": "Désinstaller Battly Launcher",
@@ -21,7 +20,6 @@
   "modeRepairDesc": "Réparer et ré-enregistrer les composants.",
   "modeUninstall": "Désinstaller",
   "modeUninstallDesc": "Supprimer Battly complètement.",
-
   "optionsTitle": "Options d'installation",
   "scopeAll": "Pour tous les utilisateurs (Nécessite admin)",
   "scopeCurrent": "Seulement pour moi",
@@ -31,22 +29,18 @@
   "appNameLabel": "Nom d'affichage :",
   "versionLabel": "Version :",
   "publisherLabel": "Éditeur / Fabricant :",
-
   "pathTitle": "Sélectionnez le chemin d'installation",
   "pathHint": "Un chemin recommandé sera choisi en fonction de la portée sélectionnée.",
   "pathBrowse": "Parcourir",
   "pathPlaceholder": "Sélectionner un dossier",
-
   "eulaTitle": "Accord de licence",
   "eulaLoadingText": "Chargement de l'accord de licence...",
   "eulaAcceptLabel": "J'accepte les termes de l'accord de licence",
   "eulaRetryBtn": "Réessayer",
   "eulaErrorText": "Erreur lors du chargement du CLUF :",
-
   "partnersTitle": "Essayez Opera GX - Le navigateur pour les passionnés de technologie",
   "partnersDesc": "Opera GX est un navigateur moderne qui inclut un VPN gratuit, un bloqueur de publicités intégré et de multiples fonctionnalités pour améliorer votre expérience en ligne.",
   "partnersCheckbox": "Installer Opera GX avec Battly",
-
   "summaryTitle": "Résumé",
   "summaryMode": "Mode :",
   "summaryScope": "Portée :",
@@ -56,23 +50,19 @@
   "summaryAppName": "Nom :",
   "summaryVersion": "Version :",
   "summaryPublisher": "Éditeur :",
-
   "progressTitle": "Installation de Battly Launcher",
   "progressTitleRepair": "Réparation de Battly Launcher",
   "progressTitleUninstall": "Désinstallation de Battly Launcher",
   "progressShowDetails": "Afficher les détails",
   "progressHideDetails": "Masquer les détails",
-
   "doneTitle": "Battly installé avec succès !",
   "doneTitleRepair": "Battly réparé avec succès !",
   "doneTitleUninstall": "Battly désinstallé avec succès !",
   "doneDesc": "Opération terminée avec succès.",
   "doneLaunchCard": "Ouvrir Battly maintenant",
   "doneErrorLaunch": "Erreur lors du lancement de Battly :",
-
   "updateNotice": "📝 <strong>Mode mise à jour :</strong> L'installation sera effectuée dans l'emplacement existant.",
   "uninstallNow": "Désinstaller maintenant",
-
   "btnNext": "Suivant",
   "btnBack": "Retour",
   "btnInstall": "Installer",
@@ -80,5 +70,13 @@
   "btnUninstall": "Désinstaller",
   "btnOpenFolder": "Ouvrir le dossier",
   "btnFinish": "Terminer",
-  "btnBrowse": "Parcourir"
+  "btnBrowse": "Parcourir",
+  "updatePreparing": "Préparation de la mise à jour…",
+  "updateDownloading": "Téléchargement de Battly…",
+  "updateChecking": "Vérification des fichiers…",
+  "updateInstalling": "Installation de la mise à jour…",
+  "updateDone": "Battly a été mis à jour.",
+  "updateRetry": "Réessayer",
+  "updateFailed": "La mise à jour de Battly n’a pas pu être terminée.",
+  "downloadUnavailable": "Aucun téléchargement compatible avec votre système Windows n’a été trouvé. Réessayez."
 }

@@ -9,7 +9,6 @@
   "stepSummary": "Summary",
   "stepProgress": "Progress",
   "stepDone": "Finish",
-
   "welcomeTitle": "Welcome to the installer",
   "welcomeDesc": "This wizard will guide you to install, repair or uninstall the application.",
   "uninstall_welcome_title": "Uninstall Battly Launcher",
@@ -21,7 +20,6 @@
   "modeRepairDesc": "Re-register and fix components.",
   "modeUninstall": "Uninstall",
   "modeUninstallDesc": "Remove Battly completely.",
-
   "optionsTitle": "Installation options",
   "scopeAll": "For all users (Requires admin)",
   "scopeCurrent": "Only for me",
@@ -31,22 +29,18 @@
   "appNameLabel": "Display name:",
   "versionLabel": "Version:",
   "publisherLabel": "Publisher / Manufacturer:",
-
   "pathTitle": "Select installation path",
   "pathHint": "A recommended path will be chosen based on the selected scope.",
   "pathBrowse": "Browse",
   "pathPlaceholder": "Select a folder",
-
   "eulaTitle": "License Agreement",
   "eulaLoadingText": "Loading license agreement...",
   "eulaAcceptLabel": "I accept the terms of the license agreement",
   "eulaRetryBtn": "Retry",
   "eulaErrorText": "Error loading EULA:",
-
   "partnersTitle": "Try Opera GX - The browser for tech lovers",
   "partnersDesc": "Opera GX is a modern browser that includes free VPN, built-in ad blocker, and multiple features to enhance your online experience.",
   "partnersCheckbox": "Install Opera GX along with Battly",
-
   "summaryTitle": "Summary",
   "summaryMode": "Mode:",
   "summaryScope": "Scope:",
@@ -56,23 +50,19 @@
   "summaryAppName": "Name:",
   "summaryVersion": "Version:",
   "summaryPublisher": "Publisher:",
-
   "progressTitle": "Installing Battly Launcher",
   "progressTitleRepair": "Repairing Battly Launcher",
   "progressTitleUninstall": "Uninstalling Battly Launcher",
   "progressShowDetails": "Show details",
   "progressHideDetails": "Hide details",
-
   "doneTitle": "Battly installed successfully!",
   "doneTitleRepair": "Battly repaired successfully!",
   "doneTitleUninstall": "Battly uninstalled successfully!",
   "doneDesc": "Operation completed successfully.",
   "doneLaunchCard": "Open Battly now",
   "doneErrorLaunch": "Error launching Battly:",
-
   "updateNotice": "📝 <strong>Update mode:</strong> Installation will be performed in the existing location.",
   "uninstallNow": "Uninstall now",
-
   "btnNext": "Next",
   "btnBack": "Back",
   "btnInstall": "Install",
@@ -80,5 +70,13 @@
   "btnUninstall": "Uninstall",
   "btnOpenFolder": "Open folder",
   "btnFinish": "Finish",
-  "btnBrowse": "Browse"
+  "btnBrowse": "Browse",
+  "updatePreparing": "Preparing the update…",
+  "updateDownloading": "Downloading Battly…",
+  "updateChecking": "Checking the files…",
+  "updateInstalling": "Applying the update…",
+  "updateDone": "Battly has been updated.",
+  "updateRetry": "Try again",
+  "updateFailed": "The Battly update could not be completed.",
+  "downloadUnavailable": "A compatible download for your Windows system could not be found. Try again."
 }

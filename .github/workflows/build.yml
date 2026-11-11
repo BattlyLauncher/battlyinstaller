@@ -1,63 +1,118 @@
-# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
-
-name: Node.js CI
-permissions: write-all
+name: Build official Battly installers
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and verify without publishing
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: battly-official-installers
+  cancel-in-progress: false
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Get version
-        run: echo "version=$(jq -r .version package.json)" >> $GITHUB_ENV
-      
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.github_token }}
-        with:
-          tag_name: ${{ env.version }}
-          release_name: release ${{ env.version }}
-          draft: false
-          prerelease: ${{ contains(env.version, 'beta') || contains(env.version, 'alpha') }}
-
-  build-launcher:
-    needs: create-release
-    runs-on: ${{ matrix.os }}
-
+  build:
+    runs-on: windows-2022
+    env:
+      AZURE_CORE_OUTPUT: none
+    permissions:
+      contents: read
+      id-token: write
+    environment: windows-signing
     strategy:
       matrix:
-        os: [windows-latest]
-
+        include:
+          - { arch: x64, target: x86_64-pc-windows-msvc, file: Battly-Launcher-Windows.exe }
+          - { arch: ia32, target: i686-pc-windows-msvc, file: Battly-Launcher-win-ia32.exe }
     steps:
-      - name: Check out Git repository
-        uses: actions/checkout@v1
-
-      - name: Set up Node
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
         with:
-          node-version: 18.x
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: 3.x
-
-      - name: Install Dependencies
-        run: npm ci
-        shell: bash
-
-      - name: Build
+          toolchain: 1.95.0
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.3'
+      - name: Test and compile production installer
+        shell: pwsh
+        run: |
+          cargo test --locked --release --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo build --locked --release --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory artifacts -Force | Out-Null
+          Copy-Item src-tauri/target/${{ matrix.target }}/release/battly-installer.exe artifacts/${{ matrix.file }}
+          $protocol = Start-Process -FilePath "$PWD/artifacts/${{ matrix.file }}" -ArgumentList "--protocol-file=$PWD/artifacts/protocol-${{ matrix.arch }}.json" -WindowStyle Hidden -Wait -PassThru
+          if ($protocol.ExitCode) { throw 'Installer protocol check failed' }
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign and verify installer
+        shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.github_token }}
-        run: npm run build
-        shell: bash
+          SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_SIGNING_ACCOUNT_NAME }}
+          SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_SIGNING_CERTIFICATE_PROFILE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('SIGNING_ENDPOINT', 'SIGNING_ACCOUNT_NAME', 'SIGNING_CERTIFICATE_PROFILE')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing signing configuration: $name" }
+          }
+          Install-Module TrustedSigning -MinimumVersion 0.5.0 -Force -Repository PSGallery -Scope CurrentUser
+          Invoke-TrustedSigning -Endpoint $env:SIGNING_ENDPOINT -CodeSigningAccountName $env:SIGNING_ACCOUNT_NAME -CertificateProfileName $env:SIGNING_CERTIFICATE_PROFILE -FileDigest SHA256 -TimestampDigest SHA256 -TimestampRfc3161 http://timestamp.acs.microsoft.com -Files "$PWD/artifacts/${{ matrix.file }}"
+          if ((Get-AuthenticodeSignature artifacts/${{ matrix.file }}).Status -ne 'Valid') { throw 'Invalid official installer signature' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: official-${{ matrix.arch }}
+          path: |
+            artifacts/${{ matrix.file }}
+            artifacts/protocol-${{ matrix.arch }}.json
+          if-no-files-found: error
+  verify:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.3'
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - run: node scripts/installer-release-manifest.cjs artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-official-installers
+          path: |
+            artifacts/*.exe
+            artifacts/installer-protocol.json
+  publish:
+    needs: verify
+    if: vars.BATTLY_INSTALLER_PUBLISH_ENABLED == 'true' && (github.event_name == 'push' || inputs.dry_run == false)
+    runs-on: ubuntu-24.04
+    environment: battly-installers
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-official-installers
+          path: artifacts
+      - name: Publish complete official installer release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          tag="rust_v$version"
+          gh release create "$tag" --draft --target "$GITHUB_SHA" --title "Battly Installer $version" --notes "Official Windows installers for x64 and x86."
+          gh release upload "$tag" artifacts/*.exe artifacts/installer-protocol.json
+          gh release edit "$tag" --draft=false --latest

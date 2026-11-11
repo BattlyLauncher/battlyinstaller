@@ -7,6 +7,7 @@ window.bridge = {
     elevateIfNeeded: (needAdmin, state) => invoke('elevate_if_needed', { needAdmin, state }),
     getStartupArgs: () => invoke('get_startup_args'),
     getArchitecture: () => invoke('get_architecture'),
+    runUpdate: () => invoke('run_update'),
     getLatestVersion: () => invoke('get_latest_version'),
     getInstallerConfig: () => invoke('get_installer_config'),
     isUninstallMode: () => invoke('is_uninstall_mode'),

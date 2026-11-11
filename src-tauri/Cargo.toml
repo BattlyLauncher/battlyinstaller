@@ -1,6 +1,6 @@
 [package]
 name = "battly-installer"
-version = "2.0.0"
+version = "4.2.0"
 description = "Instalador oficial de Battly Launcher"
 authors = ["TECNO BROS"]
 edition = "2021"
@@ -31,8 +31,10 @@ base64ct = "=1.6.0"
 image = "=0.24.7"
 tree_magic_mini = "=3.0.3"
 globset = "=0.4.15"
-# ignore = "=0.4.20"
+
+sha2 = "0.10"
+tempfile = "3"
 
 [dependencies.windows-sys]
 version = "0.48"
-features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"]
+features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_System_Registry"]

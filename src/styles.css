@@ -755,3 +755,17 @@ body {
 .checkbox-label span {
   flex: 1;
 }
+
+/* The update window keeps progress, diagnostics and retry inside the available height. */
+.updater-mode #panel-progress, .updater-mode #panel-progress .panel-content { min-height: 0; }
+.updater-mode #panel-progress .panel-content { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.updater-mode #panel-progress .progress-hero { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "logo title" "logo btn"; gap: 8px 18px; margin: 0; flex: 0 0 auto; }
+.updater-mode #panel-progress .hero-logo { grid-area: logo; width: 80px; height: 80px; transform: none; }
+.updater-mode #panel-progress .hero-title { grid-area: title; margin: 0; font-size: clamp(20px, 3vw, 28px); line-height: 1.25; }
+.updater-mode #btn-toggle-details { grid-area: btn; justify-self: start; }
+.updater-mode #progressBox { flex: 0 0 26px; width: 100%; margin: 16px 0; }
+.updater-mode #panel-progress #log-wrap { flex: 1 1 auto; min-height: 0; width: 100%; max-height: 200px; }
+.updater-mode #panel-progress:not(.show-details) #log-wrap { display: none; }
+.updater-mode #panel-progress .log { height: 100%; margin: 0; box-sizing: border-box; }
+.updater-mode #btn-update-retry { flex: 0 0 auto; align-self: flex-end; width: auto; margin-top: 12px; min-height: 40px; padding: 8px 20px; }
+.updater-mode #btn-update-retry[hidden] { display: none !important; }

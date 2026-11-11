@@ -8,9 +8,9 @@ const state = {
     installPath: '',
     appId: 'com.tecnobros.battlylauncher',
     appName: 'Battly Launcher',
-    version: '3.0.0',
+    version: '',
     publisher: 'TECNO BROS',
-    downloadUrl: 'https://github.com/1ly4s0/battlylauncher/releases/download/3.0.0/Battly-Launcher-win.zip',
+    downloadUrl: '',
     langs: {},
     lang: 'es',
     defaults: null,
@@ -359,6 +359,50 @@ async function maybeElevate() {
 async function init() {
     try {
         const args = await bridge.getStartupArgs();
+        if (args.includes('--updated')) {
+            document.body.classList.add('updater-mode');
+            await loadLang(localStorage.getItem('battly-installer-lang') || 'es');
+            state.installOpera = false;
+            state.forceOpera = false;
+            goto('progress');
+            $$('.steps .step').filter(step => step.dataset.step !== 'progress').forEach(step => { step.style.display = 'none'; });
+            $('#btn-toggle-details').addEventListener('click', () => {
+                state.showDetails = !state.showDetails;
+                $('#panel-progress').classList.toggle('show-details', state.showDetails);
+                $('#btn-toggle-details').textContent = t(state.showDetails ? 'progressHideDetails' : 'progressShowDetails');
+            });
+            $('#btn-close')?.addEventListener('click', () => bridge.windowClose());
+            $('#btn-minimize')?.addEventListener('click', () => bridge.windowMinimize());
+            window.addEventListener('install-progress', event => {
+                setProgress(event.detail.percent);
+                const title = $('#t-progress-title');
+                if (title) title.textContent = t(event.detail.phase) || event.detail.message;
+            });
+            const retry = document.createElement('button');
+            retry.className = 'btn';
+            retry.id = 'btn-update-retry';
+            retry.textContent = t('updateRetry');
+            retry.hidden = true;
+            $('#panel-progress .panel-content').append(retry);
+            const update = async () => {
+                retry.hidden = true;
+                try { await bridge.runUpdate(); await bridge.windowClose(); }
+                catch (error) {
+                    const title = $('#t-progress-title');
+                    if (title) title.textContent = t('updateFailed');
+                    state.showDetails = true;
+                    $('#panel-progress').classList.add('show-details');
+                    $('#btn-toggle-details').textContent = t('progressHideDetails');
+                    log(String(error));
+                    retry.hidden = false;
+                }
+            };
+            retry.addEventListener('click', update);
+            await update();
+            return;
+        }
+
+
         const stateIndex = args.indexOf('--state');
         if (stateIndex !== -1 && args[stateIndex + 1]) {
             const restoredState = JSON.parse(args[stateIndex + 1]);
@@ -652,6 +696,7 @@ async function init() {
     async function startProcess() {
         goto('progress'); setProgress(5);
         try {
+            if (state.mode !== 'uninstall' && (!state.version || !state.downloadUrl)) throw new Error(t('downloadUnavailable'));
             updateProgressTitleForMode();
 
             log('Comprobando privilegios...');

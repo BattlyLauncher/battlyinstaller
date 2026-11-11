@@ -1,56 +1,18 @@
-# Dependencias
 node_modules/
-package-lock.json
-yarn.lock
-
-# Electron Forge
-out/
-.webpack/
-
-# Build files
+src-tauri/target/
+target/
+artifacts/
 dist/
 build/
-dist-store/
-BattlyInstaller-Store-Package/
-store-installer/index.exe
-
-# Logs
-logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Runtime
-*.pid
-*.seed
-*.pid.lock
-
-# Cache
-.cache/
-.temp/
-.tmp/
-
-# IDE
+.env
+.env.*
+*.pfx
+*.p12
+*.key
+*private*.pem
+.DS_Store
+Thumbs.db
+Desktop.ini
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# Test
-coverage/
-.nyc_output/
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-src/Battly-Launcher-win.zip
