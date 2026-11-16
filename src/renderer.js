@@ -341,14 +341,29 @@ function setInstallPathFromScope() {
 }
 
 /* ===== LOG + PROGRESO ===== */
+let logScrollFrame = 0;
+function scrollLogsToEnd() {
+    if (logScrollFrame) return;
+    logScrollFrame = requestAnimationFrame(() => {
+        logScrollFrame = 0;
+        const el = $('#log');
+        if (el) el.scrollTop = el.scrollHeight;
+    });
+}
+function observeProgressLog() {
+    const log = $('#log');
+    const wrap = $('#log-wrap');
+    if (!log || !wrap) return;
+    const observer = new ResizeObserver(scrollLogsToEnd);
+    observer.observe(log);
+    observer.observe(wrap);
+    wrap.addEventListener('transitionend', scrollLogsToEnd);
+}
 function log(msg) {
     const el = $('#log');
     if (!el) return;
     el.append(document.createTextNode(String(msg) + '\n'));
-    const scrollToEnd = () => { el.scrollTop = el.scrollHeight; };
-    requestAnimationFrame(scrollToEnd);
-    setTimeout(scrollToEnd, 0);
-    setTimeout(scrollToEnd, 120);
+    scrollLogsToEnd();
 }
 function setProgress(p) { $('#bar').style.width = `${Math.max(0, Math.min(100, p))}%`; }
 
@@ -359,8 +374,9 @@ function updateProgressTitleForMode() {
     else el.textContent = t('progressTitle');
 }
 
-async function maybeElevate() {
-    const needsAdmin = (state.scope === 'all') || state.installPath.toLowerCase().startsWith('c:\\program files');
+async function maybeElevate(targetDir) {
+    const writable = await bridge.checkInstallPermissions(targetDir);
+    const needsAdmin = state.scope === 'all' || !writable;
     if (needsAdmin) {
         const stateJson = JSON.stringify(state);
         const res = await bridge.elevateIfNeeded(true, stateJson);
@@ -369,6 +385,7 @@ async function maybeElevate() {
 }
 
 async function init() {
+    observeProgressLog();
     $('#btn-retry-install').addEventListener('click', startProcess);
     try {
         const args = await bridge.getStartupArgs();
@@ -662,7 +679,7 @@ async function init() {
         panel.classList.toggle('show-details', state.showDetails);
         $('#btn-toggle-details').textContent = state.showDetails ? t('progressHideDetails') : t('progressShowDetails');
         if (state.showDetails) {
-            setTimeout(() => { const el = $('#log'); if (el) el.scrollTop = el.scrollHeight; }, 140);
+            scrollLogsToEnd();
         }
     });
 
@@ -718,10 +735,6 @@ async function init() {
             }
             updateProgressTitleForMode();
 
-            log('Comprobando privilegios...');
-            await maybeElevate();
-            setProgress(10);
-
             let finalTargetDir = state.installPath;
             if (state.scope === 'custom') {
                 let normalized = finalTargetDir.replace(/\//g, '\\');
@@ -733,6 +746,10 @@ async function init() {
                     finalTargetDir = normalized;
                 }
             }
+
+            log('Comprobando privilegios...');
+            await maybeElevate(finalTargetDir);
+            setProgress(10);
 
             const payload = {
                 appId: 'com.tecnobros.battlylauncher',

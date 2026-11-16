@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+mod install_transaction;
 mod release_assets;
 mod release_lookup;
 mod update_cli;
@@ -52,6 +53,23 @@ fn choose_directory() -> Option<String> {
 }
 
 #[tauri::command]
+fn check_install_permissions(target_dir: String) -> Result<bool, String> {
+    let target = Path::new(&target_dir);
+    if !target.is_absolute() || target.parent().is_none() {
+        return Err("Selecciona una carpeta de instalación válida.".into());
+    }
+    match install_transaction::probe_permissions(target) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => Ok(false),
+        Err(error) => Err(install_transaction::file_error(
+            "comprobar los permisos",
+            target,
+            error,
+        )),
+    }
+}
+
+#[tauri::command]
 fn check_admin() -> bool {
     is_elevated::is_elevated()
 }
@@ -78,13 +96,13 @@ fn elevate_if_needed(need_admin: bool, state: Option<String>) -> bool {
         let file = to_wstring(&current_exe.to_string_lossy());
         let args_str = args
             .iter()
-            .map(|a| format!("\"{}\"", a))
+            .map(|a| update_cli::quote_windows_argument(a))
             .collect::<Vec<_>>()
             .join(" ");
         let params = to_wstring(&args_str);
         let operation = to_wstring("runas");
 
-        unsafe {
+        let launched = unsafe {
             ShellExecuteW(
                 0,
                 operation.as_ptr(),
@@ -92,7 +110,10 @@ fn elevate_if_needed(need_admin: bool, state: Option<String>) -> bool {
                 params.as_ptr(),
                 std::ptr::null(),
                 SW_SHOW,
-            );
+            )
+        };
+        if launched <= 32 {
+            return false;
         }
 
         std::process::exit(0);
@@ -258,46 +279,11 @@ async fn do_install(window: Window, payload: InstallPayload) -> Result<serde_jso
     let target_dir = Path::new(&payload.targetDir);
     let exe_name = format!("{}.exe", payload.appName);
 
-    // 0. Kill existing process if running
-    window
-        .emit(
-            "install-progress",
-            ProgressPayload {
-                percent: 0.0,
-                phase: "prep".into(),
-                message: "Verificando procesos...".into(),
-            },
-        )
-        .unwrap();
-    {
-        let mut s = System::new_all();
-        s.refresh_processes();
-        let mut killed = false;
-        // Check for "Battly Launcher.exe" and "Battly Launcher"
-        let targets = vec![exe_name.clone(), payload.appName.clone()];
-        for name in targets {
-            for process in s.processes_by_exact_name(&name) {
-                process.kill();
-                killed = true;
-            }
-        }
-        if killed {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-        }
+    if !target_dir.is_absolute() || target_dir.parent().is_none() {
+        return Err("Selecciona una carpeta de instalación válida.".into());
     }
-
-    // 1. Create directory
-    window
-        .emit(
-            "install-progress",
-            ProgressPayload {
-                percent: 0.0,
-                phase: "prep".into(),
-                message: "Creando directorios...".into(),
-            },
-        )
-        .unwrap();
-    fs::create_dir_all(target_dir).map_err(|e| e.to_string())?;
+    install_transaction::probe_permissions(target_dir)
+        .map_err(|e| install_transaction::file_error("escribir en la carpeta", target_dir, e))?;
 
     // 2. Download with progress
     window
@@ -316,16 +302,27 @@ async fn do_install(window: Window, payload: InstallPayload) -> Result<serde_jso
         .error_for_status()
         .map_err(|e| e.to_string())?;
     let total_size = response.content_length().unwrap_or(0);
+    if total_size > 512 * 1024 * 1024 {
+        return Err("El paquete supera el tamaño permitido.".into());
+    }
 
-    let temp_zip_path = target_dir.join("temp_update.zip");
-    let mut temp_file = fs::File::create(&temp_zip_path).map_err(|e| e.to_string())?;
+    let download = tempfile::NamedTempFile::new().map_err(|e| {
+        install_transaction::file_error("crear el paquete temporal", &env::temp_dir(), e)
+    })?;
+    let temp_zip_path = download.path().to_path_buf();
+    let mut temp_file = download.reopen().map_err(|e| e.to_string())?;
 
     let mut downloaded: u64 = 0;
     let mut last_emit = 0;
 
     while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
-        std::io::Write::write_all(&mut temp_file, &chunk).map_err(|e| e.to_string())?;
+        std::io::Write::write_all(&mut temp_file, &chunk).map_err(|e| {
+            install_transaction::file_error("descargar el paquete", &temp_zip_path, e)
+        })?;
         downloaded += chunk.len() as u64;
+        if downloaded > 512 * 1024 * 1024 {
+            return Err("El paquete supera el tamaño permitido.".into());
+        }
 
         if total_size > 0 {
             // Map 0-100% download to 14-70% overall
@@ -364,6 +361,11 @@ async fn do_install(window: Window, payload: InstallPayload) -> Result<serde_jso
         )
         .unwrap();
 
+    if total_size > 0 && downloaded != total_size {
+        return Err("La descarga está incompleta. La instalación anterior se conserva.".into());
+    }
+    drop(temp_file);
+
     // 3. Extract with progress
     window
         .emit(
@@ -376,52 +378,34 @@ async fn do_install(window: Window, payload: InstallPayload) -> Result<serde_jso
         )
         .unwrap();
 
-    let file = fs::File::open(&temp_zip_path).map_err(|e| e.to_string())?;
-    let reader = std::io::BufReader::new(file);
-    let mut archive = zip::ZipArchive::new(reader).map_err(|e| e.to_string())?;
-    let len = archive.len();
-
-    for i in 0..len {
-        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        let outpath = match file.enclosed_name() {
-            Some(path) => target_dir.join(path),
-            None => continue,
-        };
-
-        // Emit progress every 5 files
-        if i % 5 == 0 {
-            // Map 0-100% extract to 75-85% overall
-            let extract_pct = i as f64 / len as f64;
-            let overall_percent = 75.0 + (extract_pct * 10.0);
-
-            window
-                .emit(
+    let extraction_window = window.clone();
+    let target = target_dir.to_path_buf();
+    let install_exe = exe_name.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        install_transaction::install_archive(
+            &temp_zip_path,
+            &target,
+            &install_exe,
+            release_assets::architecture(),
+            |current, total, file| {
+                let _ = extraction_window.emit(
                     "install-progress",
                     ProgressPayload {
-                        percent: overall_percent,
+                        percent: 75.0 + current as f64 / total.max(1) as f64 * 10.0,
                         phase: "extract:progress".into(),
-                        message: format!("Extrayendo: {} / {}", i + 1, len),
+                        message: format!(
+                            "Extrayendo: {} / {} — {}",
+                            current,
+                            total,
+                            file.display()
+                        ),
                     },
-                )
-                .unwrap();
-        }
-
-        if (*file.name()).ends_with('/') {
-            fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
-        } else {
-            if let Some(p) = outpath.parent() {
-                if !p.exists() {
-                    fs::create_dir_all(p).map_err(|e| e.to_string())?;
-                }
-            }
-            let mut outfile = fs::File::create(&outpath).map_err(|e| e.to_string())?;
-            std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
-        }
-    }
-
-    // Cleanup zip
-    drop(archive); // Close file handle
-    let _ = fs::remove_file(&temp_zip_path);
+                );
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     window
         .emit(
@@ -810,6 +794,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             choose_directory,
             check_admin,
+            check_install_permissions,
             elevate_if_needed,
             get_startup_args,
             get_architecture,

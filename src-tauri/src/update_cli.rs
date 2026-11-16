@@ -38,7 +38,13 @@ fn move_path(from: &Path, to: &Path) -> Result<(), String> {
             {
                 std::thread::sleep(Duration::from_millis(250))
             }
-            Err(error) => return Err(error.to_string()),
+            Err(error) => {
+                return Err(crate::install_transaction::file_error(
+                    "mover el archivo",
+                    from,
+                    format!("{} Destino «{}».", error, to.display()),
+                ))
+            }
         }
     }
     unreachable!()
@@ -81,6 +87,27 @@ pub fn commit(stage: &Path, backup: &Path, target: &Path) -> Result<(), String> 
     }
     Ok(())
 }
+pub fn quote_windows_argument(value: &str) -> String {
+    let mut result = String::from("\"");
+    let mut backslashes = 0;
+    for c in value.chars() {
+        if c == '\\' {
+            backslashes += 1;
+            continue;
+        }
+        result.push_str(&"\\".repeat(if c == '"' {
+            backslashes * 2 + 1
+        } else {
+            backslashes
+        }));
+        result.push(c);
+        backslashes = 0;
+    }
+    result.push_str(&"\\".repeat(backslashes * 2));
+    result.push('"');
+    result
+}
+
 fn elevate(args: &[String]) -> Result<(), String> {
     use windows_sys::Win32::{
         Foundation::CloseHandle,
@@ -90,32 +117,18 @@ fn elevate(args: &[String]) -> Result<(), String> {
     fn wide(value: &str) -> Vec<u16> {
         value.encode_utf16().chain(Some(0)).collect()
     }
-    fn quote(value: &str) -> String {
-        let mut result = String::from("\"");
-        let mut backslashes = 0;
-        for c in value.chars() {
-            if c == '\\' {
-                backslashes += 1;
-                continue;
-            }
-            result.push_str(&"\\".repeat(if c == '"' {
-                backslashes * 2 + 1
-            } else {
-                backslashes
-            }));
-            result.push(c);
-            backslashes = 0;
-        }
-        result.push_str(&"\\".repeat(backslashes * 2));
-        result.push('"');
-        result
-    }
     let exe = wide(
         &env::current_exe()
             .map_err(|e| e.to_string())?
             .to_string_lossy(),
     );
-    let parameters = wide(&args.iter().map(|a| quote(a)).collect::<Vec<_>>().join(" "));
+    let parameters = wide(
+        &args
+            .iter()
+            .map(|a| quote_windows_argument(a))
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
     let verb = wide("runas");
     unsafe {
         let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
@@ -320,6 +333,10 @@ pub fn run_with_progress(mut progress: impl FnMut(f64, &str)) -> Result<(), Stri
         }
     }
     progress(75.0, "Comprobando y preparando los archivos...");
+    crate::install_transaction::probe_permissions(&target).map_err(|e| {
+        crate::install_transaction::file_error("escribir en la carpeta", &target, e)
+    })?;
+    crate::install_transaction::close_battly(&target, "Battly Launcher.exe")?;
     let stage = transaction.path().join("stage");
     let backup = transaction.path().join("backup");
     fs::create_dir(&stage).map_err(|e| e.to_string())?;
@@ -373,6 +390,8 @@ pub fn run_with_progress(mut progress: impl FnMut(f64, &str)) -> Result<(), Stri
         return Err("Windows ZIP architecture or application mismatch".into());
     }
     progress(95.0, "Aplicando la actualización...");
+    crate::install_transaction::close_battly(&target, "Battly Launcher.exe")?;
+    crate::install_transaction::check_replaceable(&stage, &target)?;
     if let Err(error) = commit(&stage, &backup, &target) {
         if fs::read_dir(&backup)
             .map_err(|e| e.to_string())?
@@ -398,6 +417,44 @@ pub fn run_with_progress(mut progress: impl FnMut(f64, &str)) -> Result<(), Stri
 mod tests {
     use super::*;
     use std::os::windows::fs::OpenOptionsExt;
+    #[test]
+    fn elevated_state_preserves_json_spaces_quotes_and_trailing_backslashes() {
+        use windows_sys::Win32::{System::Memory::LocalFree, UI::Shell::CommandLineToArgvW};
+        let state = serde_json::json!({
+            "scope": "custom", "installPath": "D:\\Games with spaces\\Battly Launcher\\",
+            "lang": "es", "note": "quoted \"value\""
+        })
+        .to_string();
+        let expected = vec![
+            "installer.exe".to_string(),
+            "--state".into(),
+            state,
+            "".into(),
+        ];
+        let command = expected
+            .iter()
+            .map(|s| quote_windows_argument(s))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let wide: Vec<u16> = command.encode_utf16().chain(Some(0)).collect();
+        unsafe {
+            let mut count = 0;
+            let args = CommandLineToArgvW(wide.as_ptr(), &mut count);
+            assert!(!args.is_null());
+            let actual = (0..count as usize)
+                .map(|index| {
+                    let argument = *args.add(index);
+                    let mut length = 0;
+                    while *argument.add(length) != 0 {
+                        length += 1;
+                    }
+                    String::from_utf16_lossy(std::slice::from_raw_parts(argument, length))
+                })
+                .collect::<Vec<_>>();
+            LocalFree(args as isize);
+            assert_eq!(actual, expected);
+        }
+    }
     #[test]
     fn private_release_credentials_never_go_to_a_zip_host_or_a_test_server() {
         let client = reqwest::blocking::Client::new();

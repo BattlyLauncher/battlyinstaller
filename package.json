@@ -1,6 +1,6 @@
 {
   "name": "battly-installer",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "scripts": {
     "tauri": "tauri",
     "build": "tauri build"

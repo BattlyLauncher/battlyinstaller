@@ -4,6 +4,7 @@ const listen = window.__TAURI__.event.listen;
 window.bridge = {
     chooseDirectory: () => invoke('choose_directory'),
     checkAdmin: () => invoke('check_admin'),
+    checkInstallPermissions: (targetDir) => invoke('check_install_permissions', { targetDir }),
     elevateIfNeeded: (needAdmin, state) => invoke('elevate_if_needed', { needAdmin, state }),
     getStartupArgs: () => invoke('get_startup_args'),
     getArchitecture: () => invoke('get_architecture'),

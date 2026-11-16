@@ -466,6 +466,29 @@ body {
   padding: 28px;
 }
 
+#panel-progress .panel-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+}
+
+#panel-progress .progress-hero,
+#panel-progress .progress,
+#panel-progress #btn-retry-install {
+  flex-shrink: 0;
+}
+
+#panel-progress .progress,
+#panel-progress .log-wrap {
+  width: 100%;
+}
+
+#panel-progress #btn-retry-install {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+
 .progress-hero {
   display: flex;
   flex-direction: column;
@@ -551,17 +574,21 @@ body {
   height: 0;
   opacity: 0;
   overflow: hidden;
+  min-height: 0;
+  flex: 0 1 0;
   transition:
     height 0.35s ease,
     opacity 0.25s ease;
 }
 #panel-progress.show-details #log-wrap {
   height: 200px;
+  flex: 1 1 200px;
+  max-height: 320px;
   border-radius: 10px !important;
   opacity: 1;
 }
 .log {
-  height: 200px;
+  height: 100%;
   background: #0f172a;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
@@ -572,6 +599,8 @@ body {
   font-size: 12px;
   line-height: 1.4;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scroll-padding-bottom: 12px;
   margin: 0;
 }
 
