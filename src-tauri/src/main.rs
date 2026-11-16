@@ -4,6 +4,7 @@
 )]
 
 mod release_assets;
+mod release_lookup;
 mod update_cli;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -110,22 +111,7 @@ fn get_architecture() -> serde_json::Value {
 }
 #[tauri::command]
 async fn get_latest_version() -> Result<serde_json::Value, String> {
-    let response = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())?
-        .get(format!(
-            "https://api.github.com/repos/{}/releases/latest",
-            release_assets::REPOSITORY
-        ))
-        .header("User-Agent", "BattlyInstaller")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?;
-    let release: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-    release_assets::select_zip(&release, release_assets::architecture())
+    release_lookup::latest(release_assets::architecture()).await
 }
 
 #[tauri::command]

@@ -1,6 +1,6 @@
 [package]
 name = "battly-installer"
-version = "4.2.0"
+version = "4.2.1"
 description = "Instalador oficial de Battly Launcher"
 authors = ["TECNO BROS"]
 edition = "2021"

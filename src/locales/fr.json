@@ -78,5 +78,6 @@
   "updateDone": "Battly a été mis à jour.",
   "updateRetry": "Réessayer",
   "updateFailed": "La mise à jour de Battly n’a pas pu être terminée.",
-  "downloadUnavailable": "Aucun téléchargement compatible avec votre système Windows n’a été trouvé. Réessayez."
+  "downloadUnavailable": "Impossible de trouver le téléchargement de Battly. Vérifiez votre connexion et réessayez.",
+  "retryDownload": "Réessayer"
 }

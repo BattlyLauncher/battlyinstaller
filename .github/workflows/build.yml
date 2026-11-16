@@ -41,6 +41,8 @@ jobs:
       - name: Test and compile production installer
         shell: pwsh
         run: |
+          node --test scripts/release-lookup.test.cjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo test --locked --release --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo build --locked --release --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}

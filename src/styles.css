@@ -768,4 +768,4 @@ body {
 .updater-mode #panel-progress:not(.show-details) #log-wrap { display: none; }
 .updater-mode #panel-progress .log { height: 100%; margin: 0; box-sizing: border-box; }
 .updater-mode #btn-update-retry { flex: 0 0 auto; align-self: flex-end; width: auto; margin-top: 12px; min-height: 40px; padding: 8px 20px; }
-.updater-mode #btn-update-retry[hidden] { display: none !important; }
+.updater-mode #btn-update-retry[hidden], #btn-retry-install[hidden] { display: none !important; }

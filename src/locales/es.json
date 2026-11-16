@@ -78,5 +78,6 @@
   "updateDone": "Battly se ha actualizado.",
   "updateRetry": "Volver a intentar",
   "updateFailed": "No se pudo completar la actualización de Battly.",
-  "downloadUnavailable": "No se ha podido obtener una descarga compatible con tu Windows. Vuelve a intentarlo."
+  "downloadUnavailable": "No se pudo consultar la descarga de Battly. Comprueba la conexión y vuelve a intentarlo.",
+  "retryDownload": "Volver a intentar"
 }

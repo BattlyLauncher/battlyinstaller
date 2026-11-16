@@ -28,20 +28,32 @@ const state = {
 };
 
 /* Cargar Ãºltima versiÃ³n desde GitHub */
+let versionRequest = null;
+let versionError = '';
+let processRunning = false;
 async function loadLatestVersion() {
-    if (state.loadingVersion) return;
+    if (versionRequest) return versionRequest;
     state.loadingVersion = true;
-
-    try {
+    versionRequest = (async () => {
+      try {
         const versionInfo = await bridge.getLatestVersion();
         if (versionInfo.ok && versionInfo.version && versionInfo.downloadUrl) {
             state.version = versionInfo.version;
             state.downloadUrl = versionInfo.downloadUrl;
+            versionError = '';
+        } else {
+            throw new Error(t('downloadUnavailable'));
         }
-    } catch (e) { }
-    finally {
+      } catch (e) {
+        state.version = '';
+        state.downloadUrl = '';
+        versionError = e?.message || String(e);
+      } finally {
         state.loadingVersion = false;
-    }
+      }
+    })();
+    try { await versionRequest; }
+    finally { versionRequest = null; }
 }
 
 /* Cargar configuraciÃ³n del instalador desde API */
@@ -357,6 +369,7 @@ async function maybeElevate() {
 }
 
 async function init() {
+    $('#btn-retry-install').addEventListener('click', startProcess);
     try {
         const args = await bridge.getStartupArgs();
         if (args.includes('--updated')) {
@@ -694,9 +707,15 @@ async function init() {
 
     // ===== Lanzar instalaciÃ³n =====
     async function startProcess() {
+        if (processRunning) return;
+        processRunning = true;
+        $('#btn-retry-install').hidden = true;
         goto('progress'); setProgress(5);
         try {
-            if (state.mode !== 'uninstall' && (!state.version || !state.downloadUrl)) throw new Error(t('downloadUnavailable'));
+            if (state.mode !== 'uninstall' && (!state.version || !state.downloadUrl)) {
+                await loadLatestVersion();
+                if (!state.version || !state.downloadUrl) throw new Error(versionError || t('downloadUnavailable'));
+            }
             updateProgressTitleForMode();
 
             log('Comprobando privilegios...');
@@ -764,7 +783,14 @@ async function init() {
             }
         } catch (e) {
             log('ERROR: ' + (e?.message || String(e)));
-            setProgress(100);
+            setProgress(0);
+            $('#progressBox').classList.remove('download');
+            state.showDetails = true;
+            $('#panel-progress').classList.add('show-details');
+            $('#btn-toggle-details').textContent = t('progressHideDetails');
+            $('#btn-retry-install').hidden = false;
+        } finally {
+            processRunning = false;
         }
     }
 

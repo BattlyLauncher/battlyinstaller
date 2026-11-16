@@ -125,7 +125,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "battly-installer"
-version = "4.2.0"
+version = "4.2.1"
 dependencies = [
  "anyhow",
  "base64ct",
