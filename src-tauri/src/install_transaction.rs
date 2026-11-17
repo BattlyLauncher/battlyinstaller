@@ -1,5 +1,5 @@
 use std::fs::{self, OpenOptions};
-use std::io;
+use std::io::{self, Write};
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -36,6 +36,14 @@ pub fn probe_permissions(target: &Path) -> io::Result<()> {
         .prefix(".battly-permission-")
         .tempdir_in(directory)?;
     fs::write(probe.path().join("write-test"), b"Battly")?;
+    // Creating a subdirectory does not prove FILE_ADD_FILE on its parent.
+    // Existing ACLs may allow the old probe while rejecting the new executable.
+    let mut direct = tempfile::Builder::new()
+        .prefix(".battly-file-permission-")
+        .tempfile_in(directory)?;
+    direct.write_all(b"Battly")?;
+    direct.as_file().sync_all()?;
+    direct.close()?;
     probe.close()
 }
 

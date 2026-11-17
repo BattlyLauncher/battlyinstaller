@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+mod install_files;
 mod install_transaction;
 mod release_assets;
 mod release_lookup;

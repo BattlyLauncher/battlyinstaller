@@ -28,65 +28,7 @@ fn github_request(
     request
 }
 
-fn move_path(from: &Path, to: &Path) -> Result<(), String> {
-    for attempt in 0..24 {
-        match fs::rename(from, to) {
-            Ok(()) => return Ok(()),
-            Err(error)
-                if attempt < 23
-                    && matches!(error.raw_os_error(), Some(5) | Some(32) | Some(33)) =>
-            {
-                std::thread::sleep(Duration::from_millis(250))
-            }
-            Err(error) => {
-                return Err(crate::install_transaction::file_error(
-                    "mover el archivo",
-                    from,
-                    format!("{} Destino «{}».", error, to.display()),
-                ))
-            }
-        }
-    }
-    unreachable!()
-}
-pub fn commit(stage: &Path, backup: &Path, target: &Path) -> Result<(), String> {
-    let mut old = Vec::<PathBuf>::new();
-    let mut installed = Vec::<PathBuf>::new();
-    let result = (|| {
-        let mut entries = fs::read_dir(stage)
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            let name = PathBuf::from(entry.file_name());
-            let destination = target.join(&name);
-            if destination.exists() {
-                move_path(&destination, &backup.join(&name))?;
-                old.push(name.clone());
-            }
-            move_path(&entry.path(), &destination)?;
-            installed.push(name);
-        }
-        Ok(())
-    })();
-    if let Err(error) = result {
-        for name in installed.iter().rev() {
-            let file = target.join(name);
-            let remove = if file.is_dir() {
-                fs::remove_dir_all(&file)
-            } else {
-                fs::remove_file(&file)
-            };
-            remove.map_err(|e| format!("{}; rollback: {}", error, e))?;
-        }
-        for name in old.iter().rev() {
-            move_path(&backup.join(name), &target.join(name))?;
-        }
-        return Err(error);
-    }
-    Ok(())
-}
+pub use crate::install_files::commit;
 pub fn quote_windows_argument(value: &str) -> String {
     let mut result = String::from("\"");
     let mut backslashes = 0;
