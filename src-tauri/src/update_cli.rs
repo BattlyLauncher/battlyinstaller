@@ -122,6 +122,169 @@ fn update_registration(target: &Path, version: &str) {
         }
     }
 }
+const CDN_DOWNLOADS: &str = "https://cdn.battlylauncher.com/desktop/downloads";
+const ZIP_LIMIT: u64 = 512 * 1024 * 1024;
+
+fn with_cdn_fallback(
+    progress: &mut dyn FnMut(f64, &str),
+    github: impl FnOnce(&mut dyn FnMut(f64, &str)) -> Result<Value, String>,
+    repository: &str,
+    tag: Option<&str>,
+    cdn: impl FnOnce(&str, &mut dyn FnMut(f64, &str)) -> Result<Value, String>,
+) -> Result<Value, String> {
+    match github(progress) {
+        Ok(asset) => Ok(asset),
+        Err(primary) => match tag.filter(|tag| {
+            repository.eq_ignore_ascii_case(REPOSITORY) && stable_version(tag).is_some()
+        }) {
+            Some(tag) => cdn(tag, progress)
+                .map_err(|secondary| format!("GitHub: {primary}. CDN de Battly: {secondary}")),
+            None => Err(primary),
+        },
+    }
+}
+
+fn stable_version(tag: &str) -> Option<&str> {
+    let version = tag.strip_prefix('v')?;
+    let mut parts = version.split('.');
+    for _ in 0..3 {
+        let part = parts.next()?;
+        if part.parse::<u32>().ok()?.to_string() != part {
+            return None;
+        }
+    }
+    parts.next().is_none().then_some(version)
+}
+
+fn cdn_asset(client: &reqwest::blocking::Client, tag: &str, arch: &str) -> Result<Value, String> {
+    let version = stable_version(tag).ok_or("Invalid CDN release tag")?;
+    let url = format!("{CDN_DOWNLOADS}/{version}/windows-full.json");
+    let response = client
+        .get(url)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+    let mut metadata = Vec::new();
+    response
+        .take(16 * 1024 + 1)
+        .read_to_end(&mut metadata)
+        .map_err(|error| error.to_string())?;
+    if metadata.len() > 16 * 1024 {
+        return Err("CDN release manifest exceeds limit".into());
+    }
+    let manifest = serde_json::from_slice(&metadata).map_err(|error| error.to_string())?;
+    select_cdn_asset(&manifest, tag, arch)
+}
+
+fn select_cdn_asset(manifest: &Value, tag: &str, arch: &str) -> Result<Value, String> {
+    let version = stable_version(tag).ok_or("Invalid CDN release tag")?;
+    let filename = match arch {
+        "x64" => "Battly-Launcher-win.zip",
+        "ia32" => "Battly-Launcher-win-ia32.zip",
+        _ => return Err("Unsupported Windows architecture".into()),
+    };
+    if manifest["schema"].as_u64() != Some(1) || manifest["tag"].as_str() != Some(tag) {
+        return Err("CDN release manifest does not match the requested version".into());
+    }
+    let zip = &manifest["windows"][arch];
+    let size = zip["size"]
+        .as_u64()
+        .filter(|size| (1..=ZIP_LIMIT).contains(size))
+        .ok_or("Invalid CDN ZIP size")?;
+    let digest = zip["sha256"]
+        .as_str()
+        .filter(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        })
+        .ok_or("Invalid CDN ZIP checksum")?;
+    if zip["file"].as_str() != Some(filename) {
+        return Err("Unexpected CDN ZIP name".into());
+    }
+    Ok(serde_json::json!({
+        "version": version,
+        "downloadUrl": format!("{CDN_DOWNLOADS}/{version}/{filename}"),
+        "size": size,
+        "digest": format!("sha256:{digest}"),
+    }))
+}
+
+fn download_zip(
+    client: &reqwest::blocking::Client,
+    asset: &Value,
+    token: Option<&str>,
+    zip_path: &Path,
+    progress: &mut dyn FnMut(f64, &str),
+) -> Result<(), String> {
+    let mut url = asset["downloadUrl"].as_str().ok_or("Missing ZIP URL")?;
+    let mut api_download = false;
+    if token.is_some() {
+        if let Some(api) = asset["apiDownloadUrl"].as_str() {
+            if !api.starts_with("https://api.github.com/repos/")
+                || !api.contains("/releases/assets/")
+                || !api
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
+            {
+                return Err("Unsafe GitHub asset API URL".into());
+            }
+            url = api;
+            api_download = true;
+        }
+    }
+    let mut request = github_request(&client, url, token.as_deref());
+    if api_download {
+        request = request.header("Accept", "application/octet-stream");
+    }
+    let mut response = request
+        .send()
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?;
+    let mut file = fs::File::create(zip_path).map_err(|e| e.to_string())?;
+    let mut hash = Sha256::new();
+    let mut size = 0u64;
+    let mut buffer = [0u8; 65536];
+    let mut last_percent = 0.0;
+    loop {
+        let n = response.read(&mut buffer).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        size += n as u64;
+        let total = asset["size"].as_u64().unwrap_or(size.max(1));
+        let percent = 10.0 + 60.0 * (size as f64 / total.max(1) as f64).min(1.0);
+        if percent - last_percent >= 1.0 {
+            progress(percent, "Descargando Battly...");
+            last_percent = percent;
+        }
+        if size > ZIP_LIMIT {
+            return Err("Windows ZIP exceeds limit".into());
+        }
+        hash.update(&buffer[..n]);
+        file.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
+    }
+    drop(file);
+    if asset["size"]
+        .as_u64()
+        .is_some_and(|expected| expected != size)
+    {
+        return Err("Windows ZIP size mismatch".into());
+    }
+    if let Some(expected) = asset["digest"].as_str() {
+        if expected != format!("sha256:{:x}", hash.finalize()) {
+            return Err("Windows ZIP checksum mismatch".into());
+        }
+    }
+    Ok(())
+}
+
 pub fn run() -> Result<(), String> {
     run_with_progress(|_, _| {})
 }
@@ -198,82 +361,45 @@ pub fn run_with_progress(mut progress: impl FnMut(f64, &str)) -> Result<(), Stri
     let token = env::var("BATTLY_INSTALLER_GITHUB_TOKEN")
         .or_else(|_| env::var("BATTLY_PATCH_GITHUB_TOKEN"))
         .ok();
-    let release: Value = github_request(&client, &endpoint, token.as_deref())
-        .send()
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
-        .map_err(|e| e.to_string())?;
-    if tag
-        .as_ref()
-        .is_some_and(|t| release["tag_name"].as_str() != Some(t))
-    {
-        return Err("Release tag mismatch".into());
-    }
-    let asset = select_zip(&release, &arch)?;
     let zip_path = transaction.path().join("download.zip");
-    let mut url = asset["downloadUrl"].as_str().ok_or("Missing ZIP URL")?;
-    let mut api_download = false;
-    if token.is_some() {
-        if let Some(api) = asset["apiDownloadUrl"].as_str() {
-            if !api.starts_with("https://api.github.com/repos/")
-                || !api.contains("/releases/assets/")
-                || !api
-                    .rsplit('/')
-                    .next()
-                    .is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
-            {
-                return Err("Unsafe GitHub asset API URL".into());
-            }
-            url = api;
-            api_download = true;
+    let github = |progress: &mut dyn FnMut(f64, &str)| {
+        let release: Value = github_request(&client, &endpoint, token.as_deref())
+            .timeout(Duration::from_secs(15))
+            .send()
+            .map_err(|e| e.to_string())?
+            .error_for_status()
+            .map_err(|e| e.to_string())?
+            .json()
+            .map_err(|e| e.to_string())?;
+        if tag
+            .as_ref()
+            .is_some_and(|t| release["tag_name"].as_str() != Some(t))
+        {
+            return Err("Release tag mismatch".into());
         }
-    }
-    let mut request = github_request(&client, url, token.as_deref());
-    if api_download {
-        request = request.header("Accept", "application/octet-stream");
-    }
-    let mut response = request
-        .send()
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?;
-    let mut file = fs::File::create(&zip_path).map_err(|e| e.to_string())?;
-    let mut hash = Sha256::new();
-    let mut size = 0u64;
-    let mut buffer = [0u8; 65536];
-    let mut last_percent = 0.0;
-    loop {
-        let n = response.read(&mut buffer).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        size += n as u64;
-        let total = asset["size"].as_u64().unwrap_or(size.max(1));
-        let percent = 10.0 + 60.0 * (size as f64 / total.max(1) as f64).min(1.0);
-        if percent - last_percent >= 1.0 {
-            progress(percent, "Descargando Battly...");
-            last_percent = percent;
-        }
-        if size > 512 * 1024 * 1024 {
-            return Err("Windows ZIP exceeds limit".into());
-        }
-        hash.update(&buffer[..n]);
-        file.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
-    }
-    drop(file);
-    if asset["size"]
-        .as_u64()
-        .is_some_and(|expected| expected != size)
-    {
-        return Err("Windows ZIP size mismatch".into());
-    }
-    if let Some(expected) = asset["digest"].as_str() {
-        if expected != format!("sha256:{:x}", hash.finalize()) {
-            return Err("Windows ZIP checksum mismatch".into());
-        }
-    }
+        let asset = select_zip(&release, &arch)?;
+        download_zip(&client, &asset, token.as_deref(), &zip_path, progress)?;
+        Ok(asset)
+    };
+    let asset = with_cdn_fallback(
+        &mut progress,
+        github,
+        &repository,
+        tag.as_deref(),
+        |tag, progress| {
+            progress(8.0, "Conectando con la CDN de Battly...");
+            let cdn_client = reqwest::blocking::Client::builder()
+                .user_agent("BattlyInstaller")
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(300))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|error| error.to_string())?;
+            let asset = cdn_asset(&cdn_client, tag, &arch)?;
+            download_zip(&cdn_client, &asset, None, &zip_path, progress)?;
+            Ok(asset)
+        },
+    )?;
     progress(75.0, "Comprobando y preparando los archivos...");
     crate::install_transaction::probe_permissions(&target).map_err(|e| {
         crate::install_transaction::file_error("escribir en la carpeta", &target, e)
@@ -358,6 +484,103 @@ pub fn run_with_progress(mut progress: impl FnMut(f64, &str)) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reply_once(status: &str, body: &[u8]) -> (String, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len(),
+        );
+        let body = body.to_vec();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let _ = socket.read(&mut [0; 4096]).unwrap();
+            socket.write_all(response.as_bytes()).unwrap();
+            socket.write_all(&body).unwrap();
+        });
+        (url, server)
+    }
+
+    #[test]
+    fn github_403_uses_cdn_and_verifies_the_download() {
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let (github_url, github_server) = reply_once("403 Forbidden", b"");
+        let (cdn_url, cdn_server) = reply_once("200 OK", b"test archive");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("download.zip");
+        fs::write(&path, b"a longer incomplete primary download").unwrap();
+        let digest = format!("{:x}", Sha256::digest(b"test archive"));
+        let manifest = serde_json::json!({"schema":1,"tag":"v3.1.1","windows":{
+            "x64":{"file":"Battly-Launcher-win.zip","size":12,"sha256":digest}
+        }});
+        let asset = with_cdn_fallback(
+            &mut |_, _| {},
+            |_| {
+                client
+                    .get(github_url)
+                    .send()
+                    .and_then(|r| r.error_for_status())
+                    .map(|_| unreachable!("GitHub should return 403"))
+                    .map_err(|error| error.to_string())
+            },
+            REPOSITORY,
+            Some("v3.1.1"),
+            |tag, progress| {
+                let mut asset = select_cdn_asset(&manifest, tag, "x64")?;
+                asset["downloadUrl"] = cdn_url.into();
+                download_zip(&client, &asset, None, &path, progress)?;
+                Ok(asset)
+            },
+        )
+        .unwrap();
+        github_server.join().unwrap();
+        cdn_server.join().unwrap();
+        assert_eq!(asset["version"], "3.1.1");
+        assert_eq!(fs::read(&path).unwrap(), b"test archive");
+
+        let (corrupt_url, corrupt_server) = reply_once("200 OK", b"bad archive!");
+        let mut corrupt = asset;
+        corrupt["downloadUrl"] = corrupt_url.into();
+        let error = download_zip(&client, &corrupt, None, &path, &mut |_, _| {}).unwrap_err();
+        corrupt_server.join().unwrap();
+        assert_eq!(error, "Windows ZIP checksum mismatch");
+    }
+
+    #[test]
+    fn cdn_does_not_substitute_another_release_repository_or_architecture() {
+        for (repo, tag) in [
+            ("owner/private", Some("v3.1.1")),
+            (REPOSITORY, Some("v3.1.1-beta.1")),
+            (REPOSITORY, None),
+        ] {
+            assert_eq!(
+                with_cdn_fallback(
+                    &mut |_, _| {},
+                    |_| Err("unavailable".into()),
+                    repo,
+                    tag,
+                    |_, _| panic!("must keep requested source")
+                ),
+                Err("unavailable".into())
+            );
+        }
+        let manifest = serde_json::json!({"schema":1,"tag":"v3.1.1","windows":{
+            "ia32":{"file":"Battly-Launcher-win-ia32.zip","size":42,"sha256":"a".repeat(64)}
+        }});
+        assert!(select_cdn_asset(&manifest, "v3.1.2", "ia32").is_err());
+        assert!(select_cdn_asset(&manifest, "v3.1.1", "x64").is_err());
+        let selected = select_cdn_asset(&manifest, "v3.1.1", "ia32").unwrap();
+        assert_eq!(
+            selected["downloadUrl"],
+            format!("{CDN_DOWNLOADS}/3.1.1/Battly-Launcher-win-ia32.zip")
+        );
+    }
+
     use std::os::windows::fs::OpenOptionsExt;
     #[test]
     fn elevated_state_preserves_json_spaces_quotes_and_trailing_backslashes() {

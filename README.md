@@ -22,6 +22,8 @@ El instalador admite los argumentos de electron-updater: `--updated`, `/S`, `--f
 
 La descarga se prepara en una carpeta temporal del destino y se comprueban su tamaño, digest de GitHub, rutas y arquitectura. Los archivos anteriores se conservan hasta terminar la sustitución. Si falla, se restauran; si el destino requiere permisos de administrador, se solicita elevación antes de reemplazarlos. Cancelar el aviso conserva la instalación anterior.
 
+Si falla la consulta o la descarga de una versión estable oficial, el actualizador busca esa misma versión y arquitectura en la CDN de Battly. Para activar el respaldo de una versión, copia los dos ZIP ya verificados de GitHub a \`desktop/downloads/VERSION/\` y sube \`windows-full.json\` al final. El manifiesto tiene \`schema: 1\`, \`tag: "vVERSION"\` y un objeto \`windows\` con una entrada por arquitectura (\`x64\` e \`ia32\`), cada una con \`file\`, \`size\` en bytes y \`sha256\` hexadecimal. El instalador solo acepta los nombres de ZIP oficiales y comprueba el tamaño y el SHA-256 antes de extraerlos.
+
 La selección de archivos está en [release_assets.rs](src-tauri/src/release_assets.rs) y la sustitución y recuperación en [update_cli.rs](src-tauri/src/update_cli.rs).
 
 ## GitHub Actions y firma
